@@ -17,20 +17,34 @@ export default async function handler(req, res) {
 
 // GET: Fetch all posts or a single post
 async function handleGET(req, res) {
-  const { id } = req.query
-  if (id) {
-    const post = await prisma.post.findUnique({
-      where: { id: parseInt(id) },
-      include: { author: true },
-    })
-    if (post) {
-      res.json(post)
-    } else {
-      res.status(404).json({ message: 'Post not found' })
-    }
-  } else {
-    const posts = await prisma.post.findMany({ include: { author: true } })
+  if (!req.query.id) {
+    const posts = await prisma.post.findMany({ select: { id: true, title: true } })
+    console.log('All posts:', posts);
     res.json(posts)
+  } else {
+    const { id } = req.query
+    console.log('GET request received for post ID:', id);
+    if (id) {
+      try {
+        const post = await prisma.post.findUnique({
+          where: { id: id },
+          include: { author: true },
+        })
+        console.log('Fetched post:', post);
+        if (post) {
+          res.json(post)
+        } else {
+          console.log('Post not found');
+          res.status(404).json({ message: 'Post not found' })
+        }
+      } catch (error) {
+        console.error('Error fetching post:', error);
+        res.status(500).json({ message: 'Error fetching post', error: error.message })
+      }
+    } else {
+      const posts = await prisma.post.findMany({ include: { author: true } })
+      res.json(posts)
+    }
   }
 }
 
@@ -38,15 +52,24 @@ async function handleGET(req, res) {
 async function handlePOST(req, res) {
   const { title, content, authorEmail } = req.body
   try {
+    // Check if user exists, if not create a new user
+    let user = await prisma.user.findUnique({ where: { email: authorEmail } })
+    if (!user) {
+      user = await prisma.user.create({
+        data: { email: authorEmail, name: authorEmail.split('@')[0] },
+      })
+    }
+
     const result = await prisma.post.create({
       data: {
         title,
         content,
-        author: { connect: { email: authorEmail } },
+        author: { connect: { id: user.id } },
       },
     })
     res.json(result)
   } catch (error) {
+    console.error('Error creating post:', error)
     res.status(400).json({ message: 'Error creating post', error: error.message })
   }
 }
@@ -57,7 +80,7 @@ async function handlePUT(req, res) {
   const { title, content, published } = req.body
   try {
     const result = await prisma.post.update({
-      where: { id: parseInt(id) },
+      where: { id: id },  // Changed from params.id to id
       data: { title, content, published },
     })
     res.json(result)
@@ -71,7 +94,7 @@ async function handleDELETE(req, res) {
   const { id } = req.query
   try {
     await prisma.post.delete({
-      where: { id: parseInt(id) },
+      where: { id: id },  // Changed from params.id to id
     })
     res.json({ message: 'Post deleted successfully' })
   } catch (error) {
